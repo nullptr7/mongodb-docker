@@ -6,6 +6,7 @@ import cats.syntax.all.*
 import com.example.api.UserServiceGrpc
 import io.grpc.ServerServiceDefinition
 import io.grpc.stub.{ServerCalls, StreamObserver}
+import org.typelevel.log4cats.Logger
 
 trait UserServiceFs2Grpc[F[_]]:
   def createUser(request:  CreateUserRequest):  F[CreateUserResponse]
@@ -15,7 +16,7 @@ trait UserServiceFs2Grpc[F[_]]:
   def getAllUsers(request: GetAllUsersRequest): F[GetAllUsersResponse]
 
 object UserServiceFs2Grpc:
-  private def toUnaryMethod[F[_]: Async, Req, Res](
+  private def toUnaryMethod[F[_]: Async: Logger, Req, Res](
       serviceCall: Req => F[Res],
       dispatcher:  Dispatcher[F]
   ): ServerCalls.UnaryMethod[Req, Res] =
@@ -26,10 +27,13 @@ object UserServiceFs2Grpc:
             Async[F].delay(responseObserver.onNext(response)) *>
               Async[F].delay(responseObserver.onCompleted())
           }
-          .handleErrorWith(e => Async[F].delay(responseObserver.onError(e)))
+          .handleErrorWith(e =>
+            Logger[F].error(e)(s"Error occurred while processing request: ${e.getMessage}")
+              *> Async[F].delay(responseObserver.onError(e))
+          )
       )
 
-  def bindServiceResource[F[_]: Async](
+  def bindServiceResource[F[_]: Async: Logger](
       impl: UserServiceFs2Grpc[F]
   ): Resource[F, ServerServiceDefinition] =
     Dispatcher.parallel[F].map { dispatcher =>

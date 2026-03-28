@@ -12,7 +12,7 @@ import org.typelevel.log4cats.slf4j.Slf4jLogger
 
 object Main extends IOApp:
 
-  private val logger: Logger[IO] = Slf4jLogger.getLogger[IO]
+  given logger: Logger[IO] = Slf4jLogger.getLogger[IO]
 
   def run(args: List[String]): IO[ExitCode] =
     val mongoUri = sys.env.getOrElse("MONGO_URI", "mongodb://root:password@localhost:27017")
@@ -25,10 +25,8 @@ object Main extends IOApp:
 
     app
       .use(server => IO.pure(server.start()) *> IO.never)
-      .handleError { e =>
-        println(s"Error: ${e.getMessage}")
-        e.printStackTrace()
-        ExitCode.Error
+      .handleErrorWith { e =>
+        logger.error(e)(s"Failed to start gRPC server: ${e.getMessage}") *> IO.pure(ExitCode.Error)
       }
 
   private def startGrpcServer(port: Int, mongoService: MongoService[IO]): Resource[IO, Server] =

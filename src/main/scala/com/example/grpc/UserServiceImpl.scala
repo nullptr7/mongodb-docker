@@ -1,12 +1,13 @@
 package com.example.grpc
 
 import cats.effect.*
+import cats.implicits.*
 import com.example.services.MongoService
 import com.example.api.*
 import com.example.exceptions.*
 import io.grpc.Status
 
-class UserServiceImpl(mongoService: MongoService[IO]) extends UserServiceFs2Grpc[IO]:
+class UserServiceImpl[F[_]: Async](mongoService: MongoService[F]) extends UserServiceFs2Grpc[F]:
 
   private def toUser(userData: com.example.services.UserData) =
     User(
@@ -19,52 +20,52 @@ class UserServiceImpl(mongoService: MongoService[IO]) extends UserServiceFs2Grpc
       updatedAt = userData.updatedAt
     )
 
-  private def handleException[A](exception: Throwable): IO[A] =
+  private def handleException[A](exception: Throwable): F[A] =
     exception match
       case e: UserNotFoundException =>
-        IO.raiseError(
+        Async[F].raiseError(
           new io.grpc.StatusRuntimeException(
             Status.NOT_FOUND.withDescription(e.message)
           )
         )
       case e: UserCreationException =>
-        IO.raiseError(
+        Async[F].raiseError(
           new io.grpc.StatusRuntimeException(
             Status.INVALID_ARGUMENT.withDescription(e.message)
           )
         )
       case e: UserUpdateException =>
-        IO.raiseError(
+        Async[F].raiseError(
           new io.grpc.StatusRuntimeException(
             Status.NOT_FOUND.withDescription(e.message)
           )
         )
       case e: UserDeletionException =>
-        IO.raiseError(
+        Async[F].raiseError(
           new io.grpc.StatusRuntimeException(
             Status.NOT_FOUND.withDescription(e.message)
           )
         )
       case e: FetchUsersException =>
-        IO.raiseError(
+        Async[F].raiseError(
           new io.grpc.StatusRuntimeException(
             Status.INTERNAL.withDescription(e.message)
           )
         )
       case e: AppException =>
-        IO.raiseError(
+        Async[F].raiseError(
           new io.grpc.StatusRuntimeException(
             Status.INTERNAL.withDescription(e.getMessage)
           )
         )
       case e =>
-        IO.raiseError(
+        Async[F].raiseError(
           new io.grpc.StatusRuntimeException(
             Status.INTERNAL.withDescription(s"Unexpected error: ${e.getMessage}")
           )
         )
 
-  override def createUser(request: CreateUserRequest): IO[CreateUserResponse] =
+  override def createUser(request: CreateUserRequest): F[CreateUserResponse] =
     mongoService
       .createUser(request.name, request.email, request.age, request.city)
       .map { userData =>
@@ -76,7 +77,7 @@ class UserServiceImpl(mongoService: MongoService[IO]) extends UserServiceFs2Grpc
       }
       .handleErrorWith(handleException[CreateUserResponse])
 
-  override def getUser(request: GetUserRequest): IO[GetUserResponse] =
+  override def getUser(request: GetUserRequest): F[GetUserResponse] =
     mongoService
       .getUser(request.id)
       .map { userData =>
@@ -84,11 +85,11 @@ class UserServiceImpl(mongoService: MongoService[IO]) extends UserServiceFs2Grpc
       }
       .handleErrorWith {
         case e: UserNotFoundException =>
-          IO.pure(GetUserResponse(user = None))
+          Async[F].pure(GetUserResponse(user = None))
         case e => handleException[GetUserResponse](e)
       }
 
-  override def updateUser(request: UpdateUserRequest): IO[UpdateUserResponse] =
+  override def updateUser(request: UpdateUserRequest): F[UpdateUserResponse] =
     mongoService
       .updateUser(request.id, request.name, request.email, request.age, request.city)
       .map { userData =>
@@ -100,7 +101,7 @@ class UserServiceImpl(mongoService: MongoService[IO]) extends UserServiceFs2Grpc
       }
       .handleErrorWith(handleException[UpdateUserResponse])
 
-  override def deleteUser(request: DeleteUserRequest): IO[DeleteUserResponse] =
+  override def deleteUser(request: DeleteUserRequest): F[DeleteUserResponse] =
     mongoService
       .deleteUser(request.id)
       .map { _ =>
@@ -108,7 +109,7 @@ class UserServiceImpl(mongoService: MongoService[IO]) extends UserServiceFs2Grpc
       }
       .handleErrorWith(handleException[DeleteUserResponse])
 
-  override def getAllUsers(request: GetAllUsersRequest): IO[GetAllUsersResponse] =
+  override def getAllUsers(request: GetAllUsersRequest): F[GetAllUsersResponse] =
     mongoService.getAllUsers
       .map(userDataList => GetAllUsersResponse(users = userDataList.map(toUser)))
       .handleErrorWith(handleException[GetAllUsersResponse])
