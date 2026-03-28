@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - mongodb-grpc-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  grpc-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: grpc-service
+    restart: always
+    environment:
+      MONGO_URI: mongodb://root:password@mongodb:27017
+      GRPC_PORT: 50051
+    ports:
+      - "50051:50051"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - mongodb-grpc-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  mongodb-grpc-network:
+    driver: bridge

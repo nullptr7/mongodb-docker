@@ -1,0 +1,30 @@
+# sbt
+target/
+.idea/
+.bsp/
+project/target/
+project/project/target/
+null
+
+# Scala
+*.class
+*.jar
+*.zip
+
+# IDEs
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+dist/
+build/
+.gradle/
+.metals
+.bloop
+
+# OS
+.env.local
+.env.*.local

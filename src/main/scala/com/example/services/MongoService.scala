@@ -1,0 +1,162 @@
+package com.example.services
+
+import cats.effect.*
+import cats.syntax.all.*
+import org.mongodb.scala.*
+import org.mongodb.scala.model.Filters.*
+import org.mongodb.scala.model.Updates.*
+import org.mongodb.scala.bson.ObjectId
+import org.bson.types.ObjectId as BsonObjectId
+
+case class UserData(
+    id:        String,
+    name:      String,
+    email:     String,
+    age:       Int,
+    city:      String,
+    createdAt: Long,
+    updatedAt: Long
+)
+
+trait MongoService[F[_]]:
+  def createUser(name: String, email: String, age: Int, city: String): F[UserData]
+  def getUser(id:      String): F[Option[UserData]]
+  def updateUser(
+      id:    String,
+      name:  String,
+      email: String,
+      age:   Int,
+      city:  String
+  ): F[Option[UserData]]
+  def deleteUser(id: String): F[Boolean]
+  def getAllUsers: F[List[UserData]]
+
+object MongoService:
+  def make[F[_]: Async](mongoUri: String): Resource[F, MongoService[F]] =
+    Resource.make(
+      Async[F].delay {
+        val mongoClient = MongoClient(mongoUri)
+        val database    = mongoClient.getDatabase("mongodb_grpc")
+        val collection  = database.getCollection("users")
+        new MongoServiceImpl(collection, mongoClient)
+      }
+    )(service =>
+      Async[F].delay {
+        service.close()
+      }
+    )
+
+  private[services] def fromSingleObservable[F[_]: Async, A](obs: Observable[A]): F[A] =
+    Async[F].async_ { cb =>
+      var completed = false
+      obs.subscribe(
+        a  => if (!completed) { completed = true; cb(Right(a)) },
+        e  => if (!completed) { completed = true; cb(Left(e)) },
+        () => ()
+      )
+    }
+
+  private[services] def fromOptionObservable[F[_]: Async, A](obs: Observable[A]): F[Option[A]] =
+    Async[F].async_ { cb =>
+      var value: Option[A] = None
+      var completed = false
+      obs.subscribe(
+        a  => value = Some(a),
+        e  => if (!completed) { completed = true; cb(Left(e)) },
+        () => if (!completed) { completed = true; cb(Right(value)) }
+      )
+    }
+
+  private[services] def fromListObservable[F[_]: Async, A](obs: Observable[A]): F[List[A]] =
+    Async[F].async_ { cb =>
+      val buffer    = scala.collection.mutable.ListBuffer.empty[A]
+      var completed = false
+      obs.subscribe(
+        a  => buffer += a,
+        e  => if (!completed) { completed = true; cb(Left(e)) },
+        () => if (!completed) { completed = true; cb(Right(buffer.toList)) }
+      )
+    }
+
+private class MongoServiceImpl[F[_]: Async](
+    collection:  MongoCollection[Document],
+    mongoClient: MongoClient
+) extends MongoService[F]:
+
+  def createUser(name: String, email: String, age: Int, city: String): F[UserData] =
+    for
+      id  <- Async[F].delay(new BsonObjectId().toString)
+      now <- Async[F].delay(System.currentTimeMillis())
+      doc = Document(
+        "_id"       -> id,
+        "name"      -> name,
+        "email"     -> email,
+        "age"       -> age,
+        "city"      -> city,
+        "createdAt" -> now,
+        "updatedAt" -> now
+      )
+      _ <- MongoService.fromSingleObservable(collection.insertOne(doc))
+    yield UserData(id, name, email, age, city, now, now)
+
+  def getUser(id: String): F[Option[UserData]] =
+    MongoService
+      .fromOptionObservable(collection.find(equal("_id", id)).first())
+      .map(_.map(documentToUserData))
+
+  def updateUser(
+      id:    String,
+      name:  String,
+      email: String,
+      age:   Int,
+      city:  String
+  ): F[Option[UserData]] =
+    for
+      now <- Async[F].delay(System.currentTimeMillis())
+      maybeDoc <- MongoService.fromOptionObservable(
+        collection
+          .findOneAndUpdate(
+            equal("_id", id),
+            combine(
+              set("name", name),
+              set("email", email),
+              set("age", age),
+              set("city", city),
+              set("updatedAt", now)
+            )
+          )
+          .toObservable()
+      )
+    yield maybeDoc.map(doc =>
+      UserData(
+        id,
+        doc.getString("name"),
+        doc.getString("email"),
+        doc.getInteger("age"),
+        doc.getString("city"),
+        doc.getLong("createdAt"),
+        now
+      )
+    )
+
+  def deleteUser(id: String): F[Boolean] =
+    MongoService
+      .fromSingleObservable(collection.deleteOne(equal("_id", id)))
+      .map(_.getDeletedCount > 0)
+
+  def getAllUsers: F[List[UserData]] =
+    MongoService.fromListObservable(collection.find()).map(_.map(documentToUserData))
+
+  def close(): Unit =
+    mongoClient.close()
+
+  private def documentToUserData(doc: Document): UserData =
+    UserData(
+      doc.getString("_id"),
+      doc.getString("name"),
+      doc.getString("email"),
+      doc.getInteger("age"),
+      doc.getString("city"),
+      doc.getLong("createdAt"),
+      doc.getLong("updatedAt")
+    )
