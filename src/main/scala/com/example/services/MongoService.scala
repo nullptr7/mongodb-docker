@@ -7,6 +7,7 @@ import org.mongodb.scala.model.Filters.*
 import org.mongodb.scala.model.Updates.*
 import org.mongodb.scala.bson.ObjectId
 import org.bson.types.ObjectId as BsonObjectId
+import com.example.exceptions.*
 
 case class UserData(
     id:        String,
@@ -20,15 +21,15 @@ case class UserData(
 
 trait MongoService[F[_]]:
   def createUser(name: String, email: String, age: Int, city: String): F[UserData]
-  def getUser(id:      String): F[Option[UserData]]
+  def getUser(id:      String): F[UserData]  // Throws UserNotFoundException if not found
   def updateUser(
       id:    String,
       name:  String,
       email: String,
       age:   Int,
       city:  String
-  ): F[Option[UserData]]
-  def deleteUser(id: String): F[Boolean]
+  ): F[UserData]  // Throws UserUpdateException if not found
+  def deleteUser(id: String): F[Unit]  // Throws UserDeletionException if not found
   def getAllUsers: F[List[UserData]]
 
 object MongoService:
@@ -99,10 +100,13 @@ private class MongoServiceImpl[F[_]: Async](
       _ <- MongoService.fromSingleObservable(collection.insertOne(doc))
     yield UserData(id, name, email, age, city, now, now)
 
-  def getUser(id: String): F[Option[UserData]] =
+  def getUser(id: String): F[UserData] =
     MongoService
       .fromOptionObservable(collection.find(equal("_id", id)).first())
-      .map(_.map(documentToUserData))
+      .flatMap {
+        case Some(doc) => Async[F].pure(documentToUserData(doc))
+        case None      => Async[F].raiseError(UserNotFoundException(id, s"User with id '$id' not found"))
+      }
 
   def updateUser(
       id:    String,
@@ -110,7 +114,7 @@ private class MongoServiceImpl[F[_]: Async](
       email: String,
       age:   Int,
       city:  String
-  ): F[Option[UserData]] =
+  ): F[UserData] =
     for
       now <- Async[F].delay(System.currentTimeMillis())
       maybeDoc <- MongoService.fromOptionObservable(
@@ -127,22 +131,29 @@ private class MongoServiceImpl[F[_]: Async](
           )
           .toObservable()
       )
-    yield maybeDoc.map(doc =>
-      UserData(
-        id,
-        doc.getString("name"),
-        doc.getString("email"),
-        doc.getInteger("age"),
-        doc.getString("city"),
-        doc.getLong("createdAt"),
-        now
-      )
-    )
+      result <- maybeDoc match
+        case Some(doc) =>
+          Async[F].pure(
+            UserData(
+              id,
+              doc.getString("name"),
+              doc.getString("email"),
+              doc.getInteger("age"),
+              doc.getString("city"),
+              doc.getLong("createdAt"),
+              now
+            )
+          )
+        case None => Async[F].raiseError(UserUpdateException(id, s"Failed to update user with id '$id'"))
+    yield result
 
-  def deleteUser(id: String): F[Boolean] =
+  def deleteUser(id: String): F[Unit] =
     MongoService
       .fromSingleObservable(collection.deleteOne(equal("_id", id)))
-      .map(_.getDeletedCount > 0)
+      .flatMap { result =>
+        if result.getDeletedCount > 0 then Async[F].unit
+        else Async[F].raiseError(UserDeletionException(id, s"Failed to delete user with id '$id'"))
+      }
 
   def getAllUsers: F[List[UserData]] =
     MongoService.fromListObservable(collection.find()).map(_.map(documentToUserData))
