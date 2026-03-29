@@ -1,14 +1,16 @@
 package com.example.grpc
 
-import cats.effect.*
-import cats.implicits.*
-import com.example.services.MongoService
-import com.example.api.*
-import com.example.exceptions.*
+import cats.effect._
+import cats.implicits._
+
 import io.grpc.Status
+
+import com.example.api._
+import com.example.exceptions._
+import com.example.services.MongoService
 import org.typelevel.log4cats.Logger
 
-class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
+final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
     extends UserServiceFs2Grpc[F]:
 
   private def toUser(userData: com.example.services.UserData) =
@@ -28,13 +30,13 @@ class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
         Status.NOT_FOUND.withDescription(e.message)
       case e: UserCreationException =>
         Status.INVALID_ARGUMENT.withDescription(e.message)
-      case e: UserUpdateException =>
+      case e: UserUpdateException   =>
         Status.NOT_FOUND.withDescription(e.message)
       case e: UserDeletionException =>
         Status.NOT_FOUND.withDescription(e.message)
-      case e: FetchUsersException =>
+      case e: FetchUsersException   =>
         Status.INTERNAL.withDescription(e.message)
-      case e: AppException =>
+      case e: AppException          =>
         Status.INTERNAL.withDescription(e.getMessage)
       case e =>
         Status.INTERNAL.withDescription(s"Unexpected error: ${e.getMessage}")
@@ -62,7 +64,7 @@ class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
         GetUserResponse(user = Some(toUser(userData)), found = true)
       }
       .handleErrorWith {
-        case e: UserNotFoundException =>
+        case _: UserNotFoundException =>
           Async[F].pure(GetUserResponse(user = None))
         case e => handleException[GetUserResponse](e)
       }
@@ -89,3 +91,7 @@ class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
     mongoService.getAllUsers
       .map(userDataList => GetAllUsersResponse(users = userDataList.map(toUser)))
       .handleErrorWith(handleException[GetAllUsersResponse])
+
+object UserServiceImpl:
+  def make[F[_]: Async: Logger: MongoService]: F[UserServiceImpl[F]] =
+    Async[F].delay(new UserServiceImpl[F](summon[MongoService[F]]))

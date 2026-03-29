@@ -30,4 +30,6 @@ jobs:
     - name: Set up sbt
       uses: sbt/setup-sbt@v1
     - name: Compile
-      run: sbt "clean;compile"
+      run: sbt "cc"
+    - name: Check formatting and linting
+      run: sbt "checkFmt"

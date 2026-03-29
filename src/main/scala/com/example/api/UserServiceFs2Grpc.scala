@@ -1,63 +1,44 @@
 package com.example.api
 
-import cats.effect.*
+import cats.effect._
 import cats.effect.std.Dispatcher
-import cats.syntax.all.*
-import com.example.api.UserServiceGrpc
-import io.grpc.ServerServiceDefinition
-import io.grpc.stub.{ServerCalls, StreamObserver}
+
+import io.grpc.stub.ServerCalls
+import io.grpc.{ServerMethodDefinition, ServiceDescriptor}
+
 import org.typelevel.log4cats.Logger
 
-trait UserServiceFs2Grpc[F[_]]:
+trait UserServiceFs2Grpc[F[_]] extends Fs2GrpcService[F]:
   def createUser(request:  CreateUserRequest):  F[CreateUserResponse]
   def getUser(request:     GetUserRequest):     F[GetUserResponse]
   def updateUser(request:  UpdateUserRequest):  F[UpdateUserResponse]
   def deleteUser(request:  DeleteUserRequest):  F[DeleteUserResponse]
   def getAllUsers(request: GetAllUsersRequest): F[GetAllUsersResponse]
 
-object UserServiceFs2Grpc:
-  private def toUnaryMethod[F[_]: Async: Logger, Req, Res](
-      serviceCall: Req => F[Res],
-      dispatcher:  Dispatcher[F]
-  ): ServerCalls.UnaryMethod[Req, Res] =
-    (request: Req, responseObserver: StreamObserver[Res]) =>
-      dispatcher.unsafeRunAndForget(
-        serviceCall(request)
-          .flatMap { response =>
-            Async[F].delay(responseObserver.onNext(response)) *>
-              Async[F].delay(responseObserver.onCompleted())
-          }
-          .handleErrorWith(e =>
-            Logger[F].error(e)(s"Error occurred while processing request: ${e.getMessage}")
-              *> Async[F].delay(responseObserver.onError(e))
-          )
-      )
+  override def descriptor: ServiceDescriptor = UserServiceGrpc.SERVICE
 
-  def bindServiceResource[F[_]: Async: Logger](
-      impl: UserServiceFs2Grpc[F]
-  ): Resource[F, ServerServiceDefinition] =
-    Dispatcher.parallel[F].map { dispatcher =>
-      ServerServiceDefinition
-        .builder(UserServiceGrpc.SERVICE)
-        .addMethod(
-          UserServiceGrpc.METHOD_CREATE_USER,
-          ServerCalls.asyncUnaryCall(toUnaryMethod(impl.createUser, dispatcher))
-        )
-        .addMethod(
-          UserServiceGrpc.METHOD_GET_USER,
-          ServerCalls.asyncUnaryCall(toUnaryMethod(impl.getUser, dispatcher))
-        )
-        .addMethod(
-          UserServiceGrpc.METHOD_UPDATE_USER,
-          ServerCalls.asyncUnaryCall(toUnaryMethod(impl.updateUser, dispatcher))
-        )
-        .addMethod(
-          UserServiceGrpc.METHOD_DELETE_USER,
-          ServerCalls.asyncUnaryCall(toUnaryMethod(impl.deleteUser, dispatcher))
-        )
-        .addMethod(
-          UserServiceGrpc.METHOD_GET_ALL_USERS,
-          ServerCalls.asyncUnaryCall(toUnaryMethod(impl.getAllUsers, dispatcher))
-        )
-        .build()
-    }
+  override def methodDefinitions(
+      dispatcher: Dispatcher[F]
+  )(using Async[F], Logger[F]): List[ServerMethodDefinition[?, ?]] =
+    List(
+      ServerMethodDefinition.create(
+        UserServiceGrpc.METHOD_CREATE_USER,
+        ServerCalls.asyncUnaryCall(Fs2GrpcService.toUnaryMethod(createUser, dispatcher))
+      ),
+      ServerMethodDefinition.create(
+        UserServiceGrpc.METHOD_GET_USER,
+        ServerCalls.asyncUnaryCall(Fs2GrpcService.toUnaryMethod(getUser, dispatcher))
+      ),
+      ServerMethodDefinition.create(
+        UserServiceGrpc.METHOD_UPDATE_USER,
+        ServerCalls.asyncUnaryCall(Fs2GrpcService.toUnaryMethod(updateUser, dispatcher))
+      ),
+      ServerMethodDefinition.create(
+        UserServiceGrpc.METHOD_DELETE_USER,
+        ServerCalls.asyncUnaryCall(Fs2GrpcService.toUnaryMethod(deleteUser, dispatcher))
+      ),
+      ServerMethodDefinition.create(
+        UserServiceGrpc.METHOD_GET_ALL_USERS,
+        ServerCalls.asyncUnaryCall(Fs2GrpcService.toUnaryMethod(getAllUsers, dispatcher))
+      )
+    )
