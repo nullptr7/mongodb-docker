@@ -6,8 +6,10 @@ import com.example.services.MongoService
 import com.example.api.*
 import com.example.exceptions.*
 import io.grpc.Status
+import org.typelevel.log4cats.Logger
 
-class UserServiceImpl[F[_]: Async](mongoService: MongoService[F]) extends UserServiceFs2Grpc[F]:
+class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
+    extends UserServiceFs2Grpc[F]:
 
   private def toUser(userData: com.example.services.UserData) =
     User(
@@ -20,50 +22,26 @@ class UserServiceImpl[F[_]: Async](mongoService: MongoService[F]) extends UserSe
       updatedAt = userData.updatedAt
     )
 
-  private def handleException[A](exception: Throwable): F[A] =
+  private def getErrorStatus(exception: Throwable): Status =
     exception match
       case e: UserNotFoundException =>
-        Async[F].raiseError(
-          new io.grpc.StatusRuntimeException(
-            Status.NOT_FOUND.withDescription(e.message)
-          )
-        )
+        Status.NOT_FOUND.withDescription(e.message)
       case e: UserCreationException =>
-        Async[F].raiseError(
-          new io.grpc.StatusRuntimeException(
-            Status.INVALID_ARGUMENT.withDescription(e.message)
-          )
-        )
+        Status.INVALID_ARGUMENT.withDescription(e.message)
       case e: UserUpdateException =>
-        Async[F].raiseError(
-          new io.grpc.StatusRuntimeException(
-            Status.NOT_FOUND.withDescription(e.message)
-          )
-        )
+        Status.NOT_FOUND.withDescription(e.message)
       case e: UserDeletionException =>
-        Async[F].raiseError(
-          new io.grpc.StatusRuntimeException(
-            Status.NOT_FOUND.withDescription(e.message)
-          )
-        )
+        Status.NOT_FOUND.withDescription(e.message)
       case e: FetchUsersException =>
-        Async[F].raiseError(
-          new io.grpc.StatusRuntimeException(
-            Status.INTERNAL.withDescription(e.message)
-          )
-        )
+        Status.INTERNAL.withDescription(e.message)
       case e: AppException =>
-        Async[F].raiseError(
-          new io.grpc.StatusRuntimeException(
-            Status.INTERNAL.withDescription(e.getMessage)
-          )
-        )
+        Status.INTERNAL.withDescription(e.getMessage)
       case e =>
-        Async[F].raiseError(
-          new io.grpc.StatusRuntimeException(
-            Status.INTERNAL.withDescription(s"Unexpected error: ${e.getMessage}")
-          )
-        )
+        Status.INTERNAL.withDescription(s"Unexpected error: ${e.getMessage}")
+
+  private def handleException[A](exception: Throwable): F[A] =
+    Logger[F].error(exception)(s"Error occurred: ${exception.getMessage}") *>
+      Async[F].raiseError(getErrorStatus(exception).asRuntimeException())
 
   override def createUser(request: CreateUserRequest): F[CreateUserResponse] =
     mongoService
@@ -104,9 +82,7 @@ class UserServiceImpl[F[_]: Async](mongoService: MongoService[F]) extends UserSe
   override def deleteUser(request: DeleteUserRequest): F[DeleteUserResponse] =
     mongoService
       .deleteUser(request.id)
-      .map { _ =>
-        DeleteUserResponse(success = true, message = "User deleted successfully")
-      }
+      .map(_ => DeleteUserResponse(success = true, message = "User deleted successfully"))
       .handleErrorWith(handleException[DeleteUserResponse])
 
   override def getAllUsers(request: GetAllUsersRequest): F[GetAllUsersResponse] =
