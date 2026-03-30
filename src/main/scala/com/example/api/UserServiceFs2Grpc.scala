@@ -1,6 +1,6 @@
 package com.example.api
 
-import cats.effect._
+import cats.effect.*
 import cats.effect.std.Dispatcher
 
 import io.grpc.stub.ServerCalls

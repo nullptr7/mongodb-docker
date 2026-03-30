@@ -2,9 +2,9 @@ package com.example
 
 import scala.collection.JavaConverters.seqAsJavaListConverter
 
-import cats.effect._
+import cats.effect.*
 
-import fs2.grpc.syntax.all._
+import fs2.grpc.syntax.all.*
 
 import io.grpc.Server
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder

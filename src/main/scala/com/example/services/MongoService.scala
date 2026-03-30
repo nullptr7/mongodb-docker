@@ -1,36 +1,26 @@
 package com.example.services
 
-import cats.effect._
-import cats.syntax.all._
-
-import com.example.exceptions._
-import org.bson.types.{ObjectId => BsonObjectId}
-import org.mongodb.scala._
-import org.mongodb.scala.model.Filters._
-import org.mongodb.scala.model.Updates._
-
-case class UserData(
-    id:        String,
-    name:      String,
-    email:     String,
-    age:       Int,
-    city:      String,
-    createdAt: Long,
-    updatedAt: Long
-)
+import cats.effect.*
+import cats.syntax.all.*
+import com.example.db.UserDTO
+import com.example.exceptions.*
+import org.bson.types.ObjectId as BsonObjectId
+import org.mongodb.scala.*
+import org.mongodb.scala.model.Filters.*
+import org.mongodb.scala.model.Updates.*
 
 trait MongoService[F[_]]:
-  def createUser(name: String, email: String, age: Int, city: String): F[UserData]
-  def getUser(id:      String): F[UserData] // Throws UserNotFoundException if not found
+  def createUser(name: String, email: String, age: Int, city: String): F[UserDTO]
+  def getUser(id:      String): F[UserDTO] // Throws UserNotFoundException if not found
   def updateUser(
       id:    String,
       name:  String,
       email: String,
       age:   Int,
       city:  String
-  ): F[UserData] // Throws UserUpdateException if not found
+  ): F[UserDTO] // Throws UserUpdateException if not found
   def deleteUser(id:   String): F[Unit] // Throws UserDeletionException if not found
-  def getAllUsers: F[List[UserData]]
+  def getAllUsers: F[List[UserDTO]]
 
 object MongoService:
   def make[F[_]: Async](mongoUri: String): Resource[F, MongoService[F]] =
@@ -73,7 +63,7 @@ private class MongoServiceImpl[F[_]: Async](
     mongoClient: MongoClient
 ) extends MongoService[F]:
 
-  def createUser(name: String, email: String, age: Int, city: String): F[UserData] =
+  def createUser(name: String, email: String, age: Int, city: String): F[UserDTO] =
     for
       id  <- Async[F].delay(new BsonObjectId().toString)
       now <- Async[F].delay(System.currentTimeMillis())
@@ -87,13 +77,13 @@ private class MongoServiceImpl[F[_]: Async](
         "updatedAt" -> now
       )
       _ <- MongoService.fromSingleObservable(collection.insertOne(doc))
-    yield UserData(id, name, email, age, city, now, now)
+    yield UserDTO(id, name, email, age, city, now, now)
 
-  def getUser(id: String): F[UserData] =
+  def getUser(id: String): F[UserDTO] =
     MongoService
       .fromOptionObservable(collection.find(equal("_id", id)).first())
       .flatMap {
-        case Some(doc) => Async[F].pure(documentToUserData(doc))
+        case Some(doc) => Async[F].pure(documentToUserDTO(doc))
         case None => Async[F].raiseError(UserNotFoundException(id, s"User with id '$id' not found"))
       }
 
@@ -103,7 +93,7 @@ private class MongoServiceImpl[F[_]: Async](
       email: String,
       age:   Int,
       city:  String
-  ): F[UserData] =
+  ): F[UserDTO] =
     for
       now      <- Async[F].delay(System.currentTimeMillis())
       maybeDoc <- MongoService.fromOptionObservable(
@@ -123,7 +113,7 @@ private class MongoServiceImpl[F[_]: Async](
       result   <- maybeDoc match
         case Some(doc) =>
           Async[F].pure(
-            UserData(
+            UserDTO(
               id,
               doc.getString("name"),
               doc.getString("email"),
@@ -145,14 +135,14 @@ private class MongoServiceImpl[F[_]: Async](
         else Async[F].raiseError(UserDeletionException(id, s"Failed to delete user with id '$id'"))
       }
 
-  def getAllUsers: F[List[UserData]] =
-    MongoService.fromListObservable(collection.find()).map(_.map(documentToUserData))
+  def getAllUsers: F[List[UserDTO]] =
+    MongoService.fromListObservable(collection.find()).map(_.map(documentToUserDTO))
 
   def close(): Unit =
     mongoClient.close()
 
-  private def documentToUserData(doc: Document): UserData =
-    UserData(
+  private def documentToUserDTO(doc: Document): UserDTO =
+    UserDTO(
       doc.getString("_id"),
       doc.getString("name"),
       doc.getString("email"),

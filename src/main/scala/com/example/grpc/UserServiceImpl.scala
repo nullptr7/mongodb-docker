@@ -1,27 +1,28 @@
 package com.example.grpc
 
-import cats.effect._
-import cats.implicits._
+import cats.effect.*
+import cats.implicits.*
 
 import io.grpc.Status
 
-import com.example.api._
-import com.example.exceptions._
+import com.example.api.*
+import com.example.db.UserDTO
+import com.example.exceptions.*
 import com.example.services.MongoService
 import org.typelevel.log4cats.Logger
 
 final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
     extends UserServiceFs2Grpc[F]:
 
-  private def toUser(userData: com.example.services.UserData) =
+  private def toUser(UserDTO: UserDTO) =
     User(
-      id        = userData.id,
-      name      = userData.name,
-      email     = userData.email,
-      age       = userData.age,
-      city      = userData.city,
-      createdAt = userData.createdAt,
-      updatedAt = userData.updatedAt
+      id        = UserDTO.id,
+      name      = UserDTO.name,
+      email     = UserDTO.email,
+      age       = UserDTO.age,
+      city      = UserDTO.city,
+      createdAt = UserDTO.createdAt,
+      updatedAt = UserDTO.updatedAt
     )
 
   private def getErrorStatus(exception: Throwable): Status =
@@ -48,9 +49,9 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
   override def createUser(request: CreateUserRequest): F[CreateUserResponse] =
     mongoService
       .createUser(request.name, request.email, request.age, request.city)
-      .map { userData =>
+      .map { userDTO =>
         CreateUserResponse(
-          user    = Some(toUser(userData)),
+          user    = Some(toUser(userDTO)),
           success = true,
           message = "User created successfully"
         )
@@ -60,8 +61,8 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
   override def getUser(request: GetUserRequest): F[GetUserResponse] =
     mongoService
       .getUser(request.id)
-      .map { userData =>
-        GetUserResponse(user = Some(toUser(userData)), found = true)
+      .map { userDTO =>
+        GetUserResponse(user = Some(toUser(userDTO)), found = true)
       }
       .handleErrorWith {
         case _: UserNotFoundException =>
@@ -72,9 +73,9 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
   override def updateUser(request: UpdateUserRequest): F[UpdateUserResponse] =
     mongoService
       .updateUser(request.id, request.name, request.email, request.age, request.city)
-      .map { userData =>
+      .map { userDTO =>
         UpdateUserResponse(
-          user    = Some(toUser(userData)),
+          user    = Some(toUser(userDTO)),
           success = true,
           message = "User updated successfully"
         )
@@ -89,7 +90,7 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
 
   override def getAllUsers(request: GetAllUsersRequest): F[GetAllUsersResponse] =
     mongoService.getAllUsers
-      .map(userDataList => GetAllUsersResponse(users = userDataList.map(toUser)))
+      .map(userDTOs => GetAllUsersResponse(users = userDTOs.map(toUser)))
       .handleErrorWith(handleException[GetAllUsersResponse])
 
 object UserServiceImpl:

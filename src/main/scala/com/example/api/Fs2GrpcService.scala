@@ -1,8 +1,8 @@
 package com.example.api
 
-import cats.effect._
+import cats.effect.*
 import cats.effect.std.Dispatcher
-import cats.syntax.all._
+import cats.syntax.all.*
 
 import io.grpc.stub.{ServerCalls, StreamObserver}
 import io.grpc.{ServerMethodDefinition, ServerServiceDefinition, ServiceDescriptor}
