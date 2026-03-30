@@ -11,7 +11,7 @@ import org.mongodb.scala.bson.{BsonInt64, BsonObjectId}
 import org.mongodb.scala.model.Filters.equal
 import org.mongodb.scala.{Document, *}
 
-sealed trait MongoService[F[_], A]:
+trait MongoService[F[_], A]:
 
   def create(document: Document): F[A]
 
@@ -64,26 +64,28 @@ final private class MongoServiceImpl[F[_]: Async, A: FromDocument](
     mongoClient: MongoClient
 ) extends MongoService[F, A] {
 
+  private val async: Async[F] = summon[Async[F]]
+
   override def create(document: Document): F[A] =
     for {
-      id  <- Async[F].delay(new BsonObjectId().getValue.toString)
-      now <- Async[F].delay(System.currentTimeMillis())
+      id  <- async.delay(new BsonObjectId().getValue.toString)
+      now <- async.delay(System.currentTimeMillis())
       insertedDocument = document + ("_id" -> id, "createdAt" -> now, "updatedAt" -> now)
       _             <- MongoService.fromSingleObservable(collection.insertOne(insertedDocument))
-      insertedValue <- Async[F].fromTry(fromDoc(insertedDocument))
+      insertedValue <- async.fromTry(fromDoc(insertedDocument))
     } yield insertedValue
 
   override def get(id: String): F[Option[A]] =
     MongoService
       .fromOptionObservable(collection.find(equal("_id", id)).first())
       .flatMap {
-        case Some(document) => Async[F].fromTry(fromDoc(document)).map(Some(_))
-        case None           => Async[F].pure(None)
+        case Some(document) => async.fromTry(fromDoc(document)).map(Some(_))
+        case None           => async.pure(None)
       }
 
   override def update(id: String, document: Document): F[Option[A]] =
     for {
-      now          <- Async[F].delay(System.currentTimeMillis())
+      now          <- async.delay(System.currentTimeMillis())
       maybeDoc     <- MongoService.fromOptionObservable(
         collection
           .findOneAndUpdate(
@@ -93,8 +95,8 @@ final private class MongoServiceImpl[F[_]: Async, A: FromDocument](
           .toObservable()
       )
       updatedValue <- maybeDoc match {
-        case Some(document) => Async[F].fromTry(fromDoc(document)).map(Some(_))
-        case None           => Async[F].pure(None)
+        case Some(document) => async.fromTry(fromDoc(document)).map(Some(_))
+        case None           => async.pure(None)
       }
     } yield updatedValue
 
@@ -102,14 +104,14 @@ final private class MongoServiceImpl[F[_]: Async, A: FromDocument](
     MongoService
       .fromSingleObservable(collection.deleteOne(equal("_id", id)))
       .flatMap { result =>
-        if result.getDeletedCount > 0 then Async[F].unit
-        else Async[F].raiseError(new Exception(s"Failed to delete id '$id'"))
+        if result.getDeletedCount > 0 then async.unit
+        else async.raiseError(new Exception(s"Failed to delete id '$id'"))
       }
 
   override def getAll: F[List[A]] =
     for {
       documents <- MongoService.fromListObservable(collection.find())
-      listOfA   <- documents.map(document => Async[F].fromTry(fromDoc(document))).sequence
+      listOfA   <- documents.map(document => async.fromTry(fromDoc(document))).sequence
     } yield listOfA
 
   def close(): Unit =

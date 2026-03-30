@@ -9,10 +9,14 @@ import io.grpc.{ServerMethodDefinition, ServiceDescriptor}
 import org.typelevel.log4cats.Logger
 
 trait UserServiceFs2Grpc[F[_]] extends Fs2GrpcService[F]:
-  def createUser(request:  CreateUserRequest): F[CreateUserResponse]
-  def getUser(request:     GetUserRequest): F[GetUserResponse]
-  def updateUser(request:  UpdateUserRequest): F[UpdateUserResponse]
-  def deleteUser(request:  DeleteUserRequest): F[DeleteUserResponse]
+  def createUser(request: CreateUserRequest): F[CreateUserResponse]
+
+  def getUser(request: GetUserRequest): F[GetUserResponse]
+
+  def updateUser(request: UpdateUserRequest): F[UpdateUserResponse]
+
+  def deleteUser(request: DeleteUserRequest): F[DeleteUserResponse]
+
   def getAllUsers(request: GetAllUsersRequest): F[GetAllUsersResponse]
 
   override def descriptor: ServiceDescriptor = UserServiceGrpc.SERVICE

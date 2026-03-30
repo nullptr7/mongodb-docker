@@ -14,6 +14,8 @@ import org.typelevel.log4cats.Logger
 final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F, UserDTO])
     extends UserServiceFs2Grpc[F]:
 
+  private val async: Async[F] = summon[Async[F]]
+
   private def toUser(userDTO: UserDTO) =
     User(
       id        = userDTO.id,
@@ -44,7 +46,7 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F, U
 
   private def handleException[A](exception: Throwable): F[A] =
     Logger[F].error(exception)(s"Error occurred: ${exception.getMessage}") *>
-      Async[F].raiseError(getErrorStatus(exception).asRuntimeException())
+      async.raiseError(getErrorStatus(exception).asRuntimeException())
 
   override def createUser(request: CreateUserRequest): F[CreateUserResponse] =
     mongoService
@@ -61,10 +63,10 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F, U
   override def getUser(request: GetUserRequest): F[GetUserResponse] =
     mongoService
       .get(request.id)
-      .map(userDTO => GetUserResponse(user = userDTO.map(toUser), found = true))
+      .map(userDTO => GetUserResponse(user = userDTO.map(toUser), found = userDTO.nonEmpty))
       .handleErrorWith {
         case _: UserNotFoundException =>
-          Async[F].pure(GetUserResponse(user = None))
+          async.pure(GetUserResponse(user = None))
         case e                        => handleException[GetUserResponse](e)
       }
 

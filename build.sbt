@@ -44,7 +44,10 @@ lazy val root = (project in file("."))
       "org.typelevel" %% "log4cats-slf4j"  % "2.8.0",
 
       // Scala 3 compatibility
-      "org.scala-lang.modules" %% "scala-collection-compat" % "2.14.0"
+      "org.scala-lang.modules" %% "scala-collection-compat" % "2.14.0",
+
+      // Test
+      "org.typelevel" %% "munit-cats-effect" % "2.0.0" % Test
     ),
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = true, flatPackage = true) -> (Compile / sourceManaged).value / "scalapb"
