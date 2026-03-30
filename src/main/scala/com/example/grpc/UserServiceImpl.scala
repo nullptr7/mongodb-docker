@@ -6,23 +6,23 @@ import cats.implicits.*
 import io.grpc.Status
 
 import com.example.api.*
-import com.example.db.UserDTO
+import com.example.db.{ToDocument, UserDTO}
 import com.example.exceptions.*
 import com.example.services.MongoService
 import org.typelevel.log4cats.Logger
 
-final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
+final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F, UserDTO])
     extends UserServiceFs2Grpc[F]:
 
-  private def toUser(UserDTO: UserDTO) =
+  private def toUser(userDTO: UserDTO) =
     User(
-      id        = UserDTO.id,
-      name      = UserDTO.name,
-      email     = UserDTO.email,
-      age       = UserDTO.age,
-      city      = UserDTO.city,
-      createdAt = UserDTO.createdAt,
-      updatedAt = UserDTO.updatedAt
+      id        = userDTO.id,
+      name      = userDTO.name,
+      email     = userDTO.email,
+      age       = userDTO.age,
+      city      = userDTO.city,
+      createdAt = userDTO.createdAt,
+      updatedAt = userDTO.updatedAt
     )
 
   private def getErrorStatus(exception: Throwable): Status =
@@ -39,7 +39,7 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
         Status.INTERNAL.withDescription(e.message)
       case e: AppException          =>
         Status.INTERNAL.withDescription(e.getMessage)
-      case e =>
+      case e                        =>
         Status.INTERNAL.withDescription(s"Unexpected error: ${e.getMessage}")
 
   private def handleException[A](exception: Throwable): F[A] =
@@ -48,7 +48,7 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
 
   override def createUser(request: CreateUserRequest): F[CreateUserResponse] =
     mongoService
-      .createUser(request.name, request.email, request.age, request.city)
+      .create(summon[ToDocument[CreateUserRequest]].to(request))
       .map { userDTO =>
         CreateUserResponse(
           user    = Some(toUser(userDTO)),
@@ -60,22 +60,20 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
 
   override def getUser(request: GetUserRequest): F[GetUserResponse] =
     mongoService
-      .getUser(request.id)
-      .map { userDTO =>
-        GetUserResponse(user = Some(toUser(userDTO)), found = true)
-      }
+      .get(request.id)
+      .map(userDTO => GetUserResponse(user = userDTO.map(toUser), found = true))
       .handleErrorWith {
         case _: UserNotFoundException =>
           Async[F].pure(GetUserResponse(user = None))
-        case e => handleException[GetUserResponse](e)
+        case e                        => handleException[GetUserResponse](e)
       }
 
   override def updateUser(request: UpdateUserRequest): F[UpdateUserResponse] =
     mongoService
-      .updateUser(request.id, request.name, request.email, request.age, request.city)
+      .update(request.id, summon[ToDocument[UpdateUserRequest]].to(request))
       .map { userDTO =>
         UpdateUserResponse(
-          user    = Some(toUser(userDTO)),
+          user    = userDTO.map(toUser),
           success = true,
           message = "User updated successfully"
         )
@@ -84,15 +82,15 @@ final class UserServiceImpl[F[_]: Async: Logger](mongoService: MongoService[F])
 
   override def deleteUser(request: DeleteUserRequest): F[DeleteUserResponse] =
     mongoService
-      .deleteUser(request.id)
+      .delete(request.id)
       .map(_ => DeleteUserResponse(success = true, message = "User deleted successfully"))
       .handleErrorWith(handleException[DeleteUserResponse])
 
   override def getAllUsers(request: GetAllUsersRequest): F[GetAllUsersResponse] =
-    mongoService.getAllUsers
+    mongoService.getAll
       .map(userDTOs => GetAllUsersResponse(users = userDTOs.map(toUser)))
       .handleErrorWith(handleException[GetAllUsersResponse])
 
 object UserServiceImpl:
-  def make[F[_]: Async: Logger: MongoService]: F[UserServiceImpl[F]] =
-    Async[F].delay(new UserServiceImpl[F](summon[MongoService[F]]))
+  def make[F[_]: Async: Logger](mongoService: MongoService[F, UserDTO]): F[UserServiceImpl[F]] =
+    Async[F].delay(new UserServiceImpl[F](mongoService))

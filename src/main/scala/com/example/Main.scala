@@ -1,6 +1,6 @@
 package com.example
 
-import scala.collection.JavaConverters.seqAsJavaListConverter
+import scala.jdk.CollectionConverters.*
 
 import cats.effect.*
 
@@ -10,6 +10,7 @@ import io.grpc.Server
 import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder
 
 import com.example.api.Fs2GrpcService
+import com.example.db.UserDTO
 import com.example.grpc.UserServiceImpl
 import com.example.services.MongoService
 import org.typelevel.log4cats.Logger
@@ -25,8 +26,8 @@ object Main extends IOApp:
 
     val app =
       for {
-        mongoService <- MongoService.make[IO](mongoUri)
-        server       <- startGrpcServer(grpcPort)(using mongoService)
+        mongoService <- MongoService.make[IO, UserDTO](mongoUri, "mongodb_grpc", "users")
+        server       <- startGrpcServer(grpcPort)(mongoService)
       } yield server
 
     app
@@ -37,9 +38,9 @@ object Main extends IOApp:
 
   private def startGrpcServer(
       port: Int
-  )(using mongoService: MongoService[IO]): Resource[IO, Server] =
+  )(mongoService: MongoService[IO, UserDTO]): Resource[IO, Server] =
     for {
-      userServiceImpl <- Resource.eval(UserServiceImpl.make[IO])
+      userServiceImpl <- Resource.eval(UserServiceImpl.make[IO](mongoService))
       serviceDef      <- Fs2GrpcService.bindServiceResources[IO](List(userServiceImpl))
       server          <- NettyServerBuilder
         .forPort(port)

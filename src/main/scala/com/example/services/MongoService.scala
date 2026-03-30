@@ -1,42 +1,42 @@
 package com.example.services
 
-import cats.effect.*
+import scala.util.Try
+
+import cats.effect.Resource
+import cats.effect.kernel.Async
 import cats.syntax.all.*
 
-import com.example.db.UserDTO
-import com.example.exceptions.*
-import org.bson.types.ObjectId as BsonObjectId
-import org.mongodb.scala.*
-import org.mongodb.scala.model.Filters.*
-import org.mongodb.scala.model.Updates.*
+import com.example.db.FromDocument
+import org.mongodb.scala.bson.{BsonInt64, BsonObjectId}
+import org.mongodb.scala.model.Filters.equal
+import org.mongodb.scala.{Document, *}
 
-trait MongoService[F[_]]:
-  def createUser(name: String, email: String, age: Int, city: String): F[UserDTO]
-  def getUser(id:      String): F[UserDTO] // Throws UserNotFoundException if not found
-  def updateUser(
-      id:    String,
-      name:  String,
-      email: String,
-      age:   Int,
-      city:  String
-  ): F[UserDTO] // Throws UserUpdateException if not found
-  def deleteUser(id:   String): F[Unit] // Throws UserDeletionException if not found
-  def getAllUsers: F[List[UserDTO]]
+sealed trait MongoService[F[_], A]:
+
+  def create(document: Document): F[A]
+
+  def get(id: String): F[Option[A]]
+
+  def update(id: String, document: Document): F[Option[A]]
+
+  def delete(id: String): F[Unit]
+
+  def getAll: F[List[A]]
 
 object MongoService:
-  def make[F[_]: Async](mongoUri: String): Resource[F, MongoService[F]] =
+  def make[F[_]: Async, A: FromDocument](
+      mongoUri:       String,
+      databaseName:   String,
+      collectionName: String
+  ): Resource[F, MongoService[F, A]] =
     Resource.make(
       Async[F].delay {
         val mongoClient = MongoClient(mongoUri)
-        val database    = mongoClient.getDatabase("mongodb_grpc")
-        val collection  = database.getCollection("users")
+        val database    = mongoClient.getDatabase(databaseName)
+        val collection  = database.getCollection(collectionName)
         new MongoServiceImpl(collection, mongoClient)
       }
-    )(service =>
-      Async[F].delay {
-        service.close()
-      }
-    )
+    )(service => Async[F].delay(service.close()))
 
   private[services] def fromSingleObservable[F[_]: Async, A](obs: Observable[A]): F[A] =
     Async[F].fromFuture(
@@ -59,96 +59,62 @@ object MongoService:
       }
     )
 
-private class MongoServiceImpl[F[_]: Async](
+final private class MongoServiceImpl[F[_]: Async, A: FromDocument](
     collection:  MongoCollection[Document],
     mongoClient: MongoClient
-) extends MongoService[F]:
+) extends MongoService[F, A] {
 
-  def createUser(name: String, email: String, age: Int, city: String): F[UserDTO] =
-    for
-      id  <- Async[F].delay(new BsonObjectId().toString)
+  override def create(document: Document): F[A] =
+    for {
+      id  <- Async[F].delay(new BsonObjectId().getValue.toString)
       now <- Async[F].delay(System.currentTimeMillis())
-      doc = Document(
-        "_id"       -> id,
-        "name"      -> name,
-        "email"     -> email,
-        "age"       -> age,
-        "city"      -> city,
-        "createdAt" -> now,
-        "updatedAt" -> now
-      )
-      _ <- MongoService.fromSingleObservable(collection.insertOne(doc))
-    yield UserDTO(id, name, email, age, city, now, now)
+      insertedDocument = document + ("_id" -> id, "createdAt" -> now, "updatedAt" -> now)
+      _             <- MongoService.fromSingleObservable(collection.insertOne(insertedDocument))
+      insertedValue <- Async[F].fromTry(fromDoc(insertedDocument))
+    } yield insertedValue
 
-  def getUser(id: String): F[UserDTO] =
+  override def get(id: String): F[Option[A]] =
     MongoService
       .fromOptionObservable(collection.find(equal("_id", id)).first())
       .flatMap {
-        case Some(doc) => Async[F].pure(documentToUserDTO(doc))
-        case None => Async[F].raiseError(UserNotFoundException(id, s"User with id '$id' not found"))
+        case Some(document) => Async[F].fromTry(fromDoc(document)).map(Some(_))
+        case None           => Async[F].pure(None)
       }
 
-  def updateUser(
-      id:    String,
-      name:  String,
-      email: String,
-      age:   Int,
-      city:  String
-  ): F[UserDTO] =
-    for
-      now      <- Async[F].delay(System.currentTimeMillis())
-      maybeDoc <- MongoService.fromOptionObservable(
+  override def update(id: String, document: Document): F[Option[A]] =
+    for {
+      now          <- Async[F].delay(System.currentTimeMillis())
+      maybeDoc     <- MongoService.fromOptionObservable(
         collection
           .findOneAndUpdate(
             equal("_id", id),
-            combine(
-              set("name", name),
-              set("email", email),
-              set("age", age),
-              set("city", city),
-              set("updatedAt", now)
-            )
+            Document("$set" -> document.toBsonDocument().updated("updatedAt", BsonInt64(now)))
           )
           .toObservable()
       )
-      result   <- maybeDoc match
-        case Some(doc) =>
-          Async[F].pure(
-            UserDTO(
-              id,
-              doc.getString("name"),
-              doc.getString("email"),
-              doc.getInteger("age"),
-              doc.getString("city"),
-              doc.getLong("createdAt"),
-              now
-            )
-          )
-        case None      =>
-          Async[F].raiseError(UserUpdateException(id, s"Failed to update user with id '$id'"))
-    yield result
+      updatedValue <- maybeDoc match {
+        case Some(document) => Async[F].fromTry(fromDoc(document)).map(Some(_))
+        case None           => Async[F].pure(None)
+      }
+    } yield updatedValue
 
-  def deleteUser(id: String): F[Unit] =
+  override def delete(id: String): F[Unit] =
     MongoService
       .fromSingleObservable(collection.deleteOne(equal("_id", id)))
       .flatMap { result =>
         if result.getDeletedCount > 0 then Async[F].unit
-        else Async[F].raiseError(UserDeletionException(id, s"Failed to delete user with id '$id'"))
+        else Async[F].raiseError(new Exception(s"Failed to delete id '$id'"))
       }
 
-  def getAllUsers: F[List[UserDTO]] =
-    MongoService.fromListObservable(collection.find()).map(_.map(documentToUserDTO))
+  override def getAll: F[List[A]] =
+    for {
+      documents <- MongoService.fromListObservable(collection.find())
+      listOfA   <- documents.map(document => Async[F].fromTry(fromDoc(document))).sequence
+    } yield listOfA
 
   def close(): Unit =
     mongoClient.close()
 
-  private def documentToUserDTO(doc: Document): UserDTO =
-    UserDTO(
-      doc.getString("_id"),
-      doc.getString("name"),
-      doc.getString("email"),
-      doc.getInteger("age"),
-      doc.getString("city"),
-      doc.getLong("createdAt"),
-      doc.getLong("updatedAt")
-    )
+  private[this] inline def fromDoc(doc: Document): Try[A] =
+    summon[FromDocument[A]].from(doc)
+}

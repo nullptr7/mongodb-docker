@@ -5,6 +5,7 @@ target/
 project/target/
 project/project/target/
 null
+logs
 
 # Scala
 *.class

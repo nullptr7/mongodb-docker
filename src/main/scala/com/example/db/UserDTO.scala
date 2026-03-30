@@ -8,4 +8,5 @@ case class UserDTO(
     city:      String,
     createdAt: Long,
     updatedAt: Long
-)
+) derives FromDocument,
+      ToDocument

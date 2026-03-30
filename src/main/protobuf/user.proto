@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package com.example.api;
 
+import "scalapb/scalapb.proto";
+
 option java_multiple_files = true;
 option java_package = "com.example.api";
 
@@ -16,6 +18,7 @@ message User {
 }
 
 message CreateUserRequest {
+  option (scalapb.message).derives = "com.example.db.ToDocument";
   string name = 1;
   string email = 2;
   int32 age = 3;
@@ -23,6 +26,7 @@ message CreateUserRequest {
 }
 
 message UpdateUserRequest {
+  option (scalapb.message).derives = "com.example.db.ToDocument";
   string id = 1;
   string name = 2;
   string email = 3;
