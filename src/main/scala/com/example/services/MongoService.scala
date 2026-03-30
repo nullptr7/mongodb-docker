@@ -2,6 +2,7 @@ package com.example.services
 
 import cats.effect.*
 import cats.syntax.all.*
+
 import com.example.db.UserDTO
 import com.example.exceptions.*
 import org.bson.types.ObjectId as BsonObjectId
