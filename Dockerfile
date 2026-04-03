@@ -3,7 +3,7 @@ FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 
 # Copy the fat JAR built by sbt assembly
-COPY target/scala-3.3.7/mongodb-grpc-assembly-0.1.0.jar ./app.jar
+COPY target/scala-3.3.7/mongodb-grpc-0.1.1.jar ./app.jar
 
 # Expose the gRPC port
 EXPOSE 50051

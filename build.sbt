@@ -1,5 +1,5 @@
 ThisBuild / name := "mongodb-grpc"
-ThisBuild / version := "0.1.0"
+ThisBuild / version := "0.1.1"
 ThisBuild / scalaVersion := "3.3.1"
 
 val catsVersion       = "2.13.0"
@@ -52,7 +52,7 @@ lazy val root = (project in file("."))
     Compile / PB.targets := Seq(
       scalapb.gen(grpc = true, flatPackage = true) -> (Compile / sourceManaged).value / "scalapb"
     ),
-    assembly / assemblyJarName := "mongodb-grpc-assembly-0.1.0.jar",
+    assembly / assemblyJarName := s"${(ThisBuild / name).value}-${(ThisBuild / version).value}.jar",
     assembly / mainClass := Some("com.example.Main"),
     assembly / assemblyMergeStrategy := {
       case PathList("META-INF", "MANIFEST.MF")         =>
